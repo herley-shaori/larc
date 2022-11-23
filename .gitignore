@@ -1,0 +1,5 @@
+.env
+venv/
+woeid.json
+.idea/
+__pycache__/

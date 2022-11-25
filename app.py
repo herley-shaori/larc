@@ -16,6 +16,8 @@ df.drop(columns=['placeType'], inplace=True)
 df['name'] = df['name'].str.lower()
 df['country'] = df['country'].str.lower()
 
+trendDF = None
+
 @app.get("/")
 async def root():
     return {"message": "The program is working."}
@@ -55,8 +57,8 @@ async def getCityPerCountryTrends(country:str,city:str):
 async def youtubeGetRegion():
     return pd.read_csv('google_region.csv')['region'].to_list()
 
-@app.get("/youtube_get_top_query")
-async def youtubeGetTopQuery(query:str,region:str,nrows:int):
+@app.get("/youtube_top_query")
+def youtubeGetTopQuery(query:str,region:str,nrows:int):
     if(query is None):
         return {'error':'query param is null!'}
     else:
@@ -67,17 +69,32 @@ async def youtubeGetTopQuery(query:str,region:str,nrows:int):
             lokasi = locationsDF[locationsDF['region'] == region]['code'].to_list()[0]
             pytrends = TrendReq(hl='en-US', tz=360)
             kw_list = [query]
-            pytrends.build_payload(kw_list, cat=0, timeframe='today 5-y', geo=lokasi, gprop='youtube')
+            pytrends.build_payload(kw_list, cat=0, timeframe='now 7-d', geo=lokasi, gprop='youtube')
             df_queries = pytrends.related_queries()
-            df_top = df_queries.get(query).get("top")
-            if(df_top is not None):
-                df_top = df_top.sort_values(['value'], ascending=False).head(nrows).reset_index(drop=True)
-                json_list = json.loads(json.dumps(list(df_top.T.to_dict().values())))
-                return json_list
+            try:
+                df_top = df_queries.get(query).get("top")
+                if(df_top is not None):
+                    df_top = df_top.sort_values(['value'], ascending=False).head(nrows).reset_index(drop=True)
+                    global trendDF
+                    trendDF = df_top.copy(deep=True)
+                    json_list = json.loads(json.dumps(list(df_top.T.to_dict().values())))
+                    return json_list
+            except Exception as e:
+                return {'error':'server return no data!'}
             else:
                 return {'error':'query returned no data!'}
         else:
             return {'error':'region does not exist!'}
+
+@app.get("/youtube_recent_interest")
+async def youtubeGetTopInterest(query:str,region:str,nrows:int):
+    youtubeGetTopQuery(query, region, nrows)
+    pytrends = TrendReq(hl='en-US', tz=360)
+    kw_list = trendDF['query'].to_list()
+    pytrends.build_payload(kw_list, cat=0, timeframe='all', geo='ID', gprop='')
+    a = pytrends.interest_by_region(resolution='CITY', inc_low_vol=True, inc_geo_code=False)
+    json_list = json.loads(json.dumps(list(a.T.to_dict().values())))
+    return json_list
 
 if __name__ == '__main__':
     uvicorn.run("app:app", host='0.0.0.0', port=5781, log_level="info", reload=True)
